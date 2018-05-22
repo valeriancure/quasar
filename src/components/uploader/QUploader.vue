@@ -146,20 +146,6 @@ import { QSlideTransition } from '../slide-transition'
 import uid from '../../utils/uid'
 import uploadHelpers from './uploadHelpers'
 
-const readFileAsDataURL = file => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = e => {
-      resolve(e.target.result)
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-const isImage = file => {
-  return file.type.toUpperCase().startsWith('IMAGE')
-}
-
 function initFile (file) {
   file.__doneUploading = false
   file.__failed = false
@@ -240,32 +226,32 @@ export default {
     }
   },
   computed: {
-    uploader () {
-      let uploader
-      if (this.custom && this.custom.uploader) { // we won't use the default 'url' (xhr) method
-        if (typeof this.custom.uploader === 'string') { // upload with a predefined upload helper
-          if (uploadHelpers[this.custom.uploader]) { // We check the helper exists
-            uploader = Object.assign({}, uploadHelpers[this.custom.uploader], {helperName: this.custom.uploader})
+    uploadHelper () {
+      let uploadHelper
+      if (this.custom && this.custom.uploadHelper) { // we won't use the default 'url' (xhr) method
+        if (typeof this.custom.uploadHelper === 'string') { // upload with a predefined upload helper
+          if (uploadHelpers[this.custom.uploadHelper]) { // We check the helper exists
+            uploadHelper = uploadHelpers[this.custom.uploadHelper]
           }
           else { // helper not found
-            console.error(`Upload helper ${this.custom.uploader} not found. Try null, 'url' or 'firebase-storage'.`)
+            console.error(`Upload helper ${this.custom.uploadHelper} not found. Try null, 'url' or 'firebase-storage'.`)
           }
         }
-        else if (typeof this.custom.uploader === 'function') {
-          uploader = { create: this.custom.uploader }
+        else if (typeof this.custom.uploadHelper === 'object') {
+          uploadHelper = { create: this.custom.uploadHelper }
         }
         else {
-          console.error(`custom.uploader should be null, or a Function, or a String ('url' or 'firebase-storage'). Got a ${typeof this.custom.uploader}`)
+          console.error(`custom.uploadHelper should be null, or a Object {create()}, or a String ('url' or 'firebase-storage'). Got a ${typeof this.custom.uploadHelper}`)
         }
       }
       else { // default upload method, supposed to be compatible with previous versions of QUploader
-        uploader = Object.assign({}, uploadHelpers['url'], {helperName: 'url'})
+        uploadHelper = uploadHelpers['url']
       }
-      if (uploader.checker) { // helpers come with a 'checker' functions that will check the vm/custom prop
-        const check = uploader.checker({ vm: this })
+      if (uploadHelper.checker) { // helpers come with a 'checker' functions that will check the vm/custom prop
+        const check = uploadHelper.checker({ vm: this })
         if (check.err) console.error(check.err)
       }
-      return uploader
+      return uploadHelper
     },
     uploadingTasks () {
       return this.tasks.filter(task => task.uploading)
@@ -354,36 +340,35 @@ export default {
       }
     },
     shouldStartUploads () {
+      console.log('watcher shouldStartUploads', Date.now())
       if (this.shouldStartUploads) {
         this.__processQueue()
       }
     },
     uploadingTasks () {
+      console.log('watcher uploadingTasks', Date.now())
       this.__processQueue()
     }
   },
   methods: {
-    __handNewFileList (fileList) {
-      // debugger
+    __handleNewFileList (fileList) {
       const filesArray = Array.prototype.slice.call(fileList) // Convert FileList to regular Array
       filesArray.forEach(this.__handleNewFile) // process each file one-by-one
     },
     __handleFileInputChange (e) {
-      // debugger
-      this.__handNewFileList(e.target.files)
+      this.__handleNewFileList(e.target.files)
       this.$refs.file.value = '' // remove all files from the <Input />
     },
     add (files, strict) { // method called from outside
-      if (!Array.isArray(files)) return // caller is unlikely to provide a FileList (?)
+      const filesArray = this.__convertToFilesArray(files)
       if (strict) { // caller wants to enforce all the checking process
-        files.forEach(this.__handleNewFile)
+        filesArray.forEach(this.__handleNewFile)
       }
       else { // caller wants to force-add files
-        files.forEach(this.__acceptFile)
+        filesArray.forEach(this.__acceptFile)
       }
     },
     __handleNewFile (file) {
-      // debugger
       if (this.addDisabled) return // disabled by prop
       if (this.tasks.some(task => task.file.name === file.name && task.file.size === file.size)) return // file already added
       if (!this.multiple && this.tasks.length) return // only one file allowed ; we should replace it // TODO
@@ -393,7 +378,7 @@ export default {
         uid: uid(),
         filename: file.name, // might be mutated later
         humanSize: humanStorageSize(file.size),
-        isImage: isImage(file),
+        isImage: this.__isImage(file),
         imgSrc: null,
         accepted: false,
         rejected: false,
@@ -405,25 +390,17 @@ export default {
         uploader: null
       }
       if (task.isImage) {
-        readFileAsDataURL(file).then(src => { // async, but the view is reactive to the imgSrc property, so OK
+        this.__readFileAsDataURLPromise(file).then(src => { // async, but the view is reactive to the imgSrc property, so OK
           task.imgSrc = src
         })
       }
-      this.__hookNewTask(task)
+      this.__handleNewTask(task)
     },
-    __hookNewTask (task) {
-      /* const next = this.tasks.push
-      const currentQueue = this.tasks
-      if (this.hookNewTask) { // custom hook can be provided by prop
-        this.hookNewTask({task, next, cancel, currentQueue}) // we export appropriate vars
-      }
-      else {
-        this.
-      } */
+    __handleNewTask (task) {
       task.accepted = true
-      this.__hookUploadPromise(task)
+      this.__addUploaderToTask(task)
     },
-    __hookUploadPromise (task) {
+    __addUploaderToTask (task) {
       const uploaderArguments = { // common arguments passed to all upload helpers
         task,
         additionalFields: this.additionalFields,
@@ -431,22 +408,16 @@ export default {
         success: () => { this.__completeTask(task) },
         failure: err => { this.__failTask(task, err) }
       }
-      if (this.uploader.helperName === 'url') { // specific arguments for the url/urlFactory helper
-        Object.assign(uploaderArguments, {
-          url: (this.url && this.url.length) ? this.url : this.urlFactory,
-          xhrMethod: this.method,
-          xhrHeaders: this.headers,
-          xhrRawFile: this.sendRaw
-        })
-      }
-      if (this.uploader.helperName === 'firebase-storage') { // specific arguments for the firebase-storage helper
-        Object.assign(uploaderArguments, {
-          ref: this.custom.ref,
-          refFactory: this.custom.refFactory
+      const helperArguments = this.uploadHelper.specificArguments // specific arguments required by the helper
+      if (typeof helperArguments === 'object') {
+        Object.keys(helperArguments).forEach(key => {
+          const val = helperArguments[key]
+          if (typeof val === 'string') uploaderArguments[key] = this[val]
+          if (typeof val === 'function') uploaderArguments[key] = val(this)
         })
       }
       task.uploader = {
-        start: this.uploader.create(uploaderArguments)
+        start: this.uploadHelper.create(uploaderArguments)
       }
       this.tasks.push(task)
     },
@@ -493,7 +464,7 @@ export default {
     },
     __onDrop (e) {
       this.dnd = false
-      this.__handNewFileList(e.dataTransfer.files)
+      this.__handleNewFileList(e.dataTransfer.files)
     },
     __filter (files) {
       return Array.prototype.filter.call(files, file => {
@@ -611,6 +582,25 @@ export default {
       this.tasks = []
       this.expanded = false
       this.$emit('reset')
+    },
+    __convertToFilesArray (f) {
+      // accepts File[], File, FileList
+      let filesArray = []
+      if (f instanceof File) filesArray = [f]
+      else if (f instanceof FileList) filesArray = Array.prototype.slice.call(f)
+      else if (Array.isArray(f)) filesArray = f
+      return filesArray
+    },
+    __readFileAsDataURLPromise (file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => { resolve(e.target.result) }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+    },
+    __isImage (file) {
+      return file.type.toUpperCase().startsWith('IMAGE')
     }
   }
 }

@@ -176,7 +176,7 @@ export default {
       dark: false,
       firebase: {
         custom: {
-          uploader: 'firebase-storage',
+          uploadHelper: 'firebase-storage',
           ref: storageRef,
           hooks: {}
         },

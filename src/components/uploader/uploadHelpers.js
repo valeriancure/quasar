@@ -131,11 +131,24 @@ const checkConfigWithFirebaseStorage = ({ vm }) => {
 
 export default {
   url: {
+    helperName: 'url',
     create: createWithUrl,
+    specificArguments: {
+      url: 'url',
+      urlFactory: 'urlFactory',
+      xhrMethod: 'method',
+      xhrHeaders: 'headers',
+      xhrRawFile: 'sendRaw'
+    },
     checker: checkConfigWithUrl
   },
   'firebase-storage': {
+    helperName: 'firebase-storage',
     create: createWithFirebaseStorage,
+    specificArguments: {
+      ref: vm => vm.custom.ref,
+      refFactory: vm => vm.custom.refFactory
+    },
     checker: checkConfigWithFirebaseStorage
   }
 }
