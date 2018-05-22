@@ -91,6 +91,36 @@
       <q-btn color="primary" @click="pick('upld-firebase')" style="margin-top: 15px">Pick Files</q-btn>
       <q-btn color="primary" @click="reset('upld-firebase')" style="margin-top: 15px">Reset the above Uploader</q-btn>
 
+      <p class="caption">Multiple File Upload - mock upload helper - 3 parallel uploads maximum</p>
+      <div class="text-warning" v-for="alert in firebase.missingFiles" :key="alert" v-html="alert" />
+      <div class="text-warning" v-if="firebase.missingFiles.length">
+        You might have to restart your dev server after that.
+      </div>
+      <div class="q-pa-sm" :class="this.dark ? 'bg-grey-10 text-orange' : ''">
+        <q-uploader
+          extensions=".jpg"
+          :inverted="inverted"
+          :dark="dark"
+          auto-expand
+          style="max-width: 320px"
+          float-label="Upload files"
+          multiple
+          ref="upld-mock"
+          :custom="{uploadHelper: mockUploadHelper}"
+          @start="emit('start')"
+          @finish="emit('finish')"
+          @uploaded="uploaded"
+          @add="add"
+          @remove:done="removeDone"
+          @remove:abort="removeAbort"
+          @remove:cancel="removeCancel"
+          :parallel-uploads="3"
+        />
+      </div>
+
+      <q-btn color="primary" @click="pick('upld-mock')" style="margin-top: 15px">Pick Files</q-btn>
+      <q-btn color="primary" @click="reset('upld-mock')" style="margin-top: 15px">Reset the above Uploader</q-btn>
+
       <p class="caption">Single File Upload - No Upload Button</p>
       <q-uploader style="max-width: 320px" hide-upload-button color="amber" stack-label="Stack Label" :url="url" />
 
@@ -166,6 +196,33 @@ if (firebase && firebaseStorageConfig) {
   storageRef = storage.ref('quasar-uploader-test')
 }
 
+const mockUploadHelper = {
+  create ({task, updateProgressBytes, success, failure}) {
+    const start = () => {
+      let speed = Math.pow(2, 16)
+      let uploadedBytes = 0
+      let aborted
+      const abort = () => {
+        aborted = true
+        failure()
+      }
+      const fakeProgresser = () => {
+        setTimeout(() => {
+          if (aborted) return
+          const bytes = Math.floor(speed * (1 + Math.random() / 3))
+          uploadedBytes = Math.min(uploadedBytes + bytes, task.file.size)
+          updateProgressBytes(uploadedBytes)
+          if (uploadedBytes >= task.file.size) success()
+          else fakeProgresser()
+        }, 1000)
+      }
+      fakeProgresser()
+      return Promise.resolve({ abort })
+    }
+    return start
+  }
+}
+
 export default {
   data () {
     return {
@@ -181,7 +238,8 @@ export default {
           hooks: {}
         },
         missingFiles: missingFirebaseFiles
-      }
+      },
+      mockUploadHelper
     }
   },
   methods: {

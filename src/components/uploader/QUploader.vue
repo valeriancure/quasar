@@ -238,7 +238,7 @@ export default {
           }
         }
         else if (typeof this.custom.uploadHelper === 'object') {
-          uploadHelper = { create: this.custom.uploadHelper }
+          uploadHelper = this.custom.uploadHelper
         }
         else {
           console.error(`custom.uploadHelper should be null, or a Object {create()}, or a String ('url' or 'firebase-storage'). Got a ${typeof this.custom.uploadHelper}`)
