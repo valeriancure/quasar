@@ -13,3 +13,4 @@ cordova
 debug.log
 yarn.lock
 package-lock.json
+dev/data/firebase-credentials.json

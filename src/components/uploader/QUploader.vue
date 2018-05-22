@@ -24,7 +24,7 @@
       :align="align"
       :no-parent-field="noParentField"
 
-      :length="queueLength"
+      :length="queuedOrFailedTasks.length"
       additional-length
     >
       <div
@@ -35,14 +35,14 @@
       </div>
 
       <q-spinner
-        v-if="uploading"
+        v-if="uploadingTasks.length"
         slot="after"
         size="24px"
         class="q-if-end self-center"
       ></q-spinner>
 
       <q-icon
-        v-if="uploading"
+        v-if="uploadingTasks.length"
         slot="after"
         class="q-if-end self-center"
         :name="$q.icon.uploader[`clear${isInverted ? 'Inverted' : ''}`]"
@@ -50,7 +50,7 @@
       ></q-icon>
 
       <q-icon
-        v-if="!uploading"
+        v-if="!uploadingTasks.length"
         slot="after"
         :name="$q.icon.uploader.add"
         class="q-uploader-pick-button q-if-control relative-position overflow-hidden"
@@ -63,16 +63,16 @@
           class="q-uploader-input absolute-full cursor-pointer"
           :accept="extensions"
           v-bind.prop="{multiple: multiple}"
-          @change="__add"
+          @change="__handleFileInputChange"
         >
       </q-icon>
 
       <q-icon
-        v-if="!hideUploadButton && !uploading"
+        v-if="!hideUploadButton && queuedOrFailedTasks.length"
         slot="after"
         :name="$q.icon.uploader.upload"
         class="q-if-control"
-        :disabled="queueLength === 0"
+        :disabled="queuedOrFailedTasks.length === 0"
         @click.native="upload"
       ></q-icon>
 
@@ -90,31 +90,31 @@
       <div v-show="expanded" :class="expandClass" :style="expandStyle">
         <q-list :dark="dark" class="q-uploader-files q-py-none scroll" :style="filesStyle">
           <q-item
-            v-for="file in files"
-            :key="file.name + file.__timestamp"
+            v-for="task in tasks"
+            :key="task.uid"
             class="q-uploader-file q-pa-xs"
           >
             <q-progress v-if="!hideUploadProgress"
               class="q-uploader-progress-bg absolute-full"
-              :color="file.__failed ? 'negative' : progressColor"
-              :percentage="file.__progress"
+              :color="task.failed ? 'negative' : progressColor"
+              :percentage="task.progressPercent"
               height="100%"
             ></q-progress>
             <div class="q-uploader-progress-text absolute" v-if="!hideUploadProgress">
-              {{ file.__progress }}%
+              {{ task.progressPercent }}%
             </div>
 
-            <q-item-side v-if="file.__img" :image="file.__img.src"></q-item-side>
+            <q-item-side v-if="task.isImage && task.imgSrc" :image="task.imgSrc"></q-item-side>
             <q-item-side v-else :icon="$q.icon.uploader.file" :color="color"></q-item-side>
 
-            <q-item-main :label="file.name" :sublabel="file.__size"></q-item-main>
+            <q-item-main :label="task.file.name" :sublabel="task.humanSize"></q-item-main>
 
             <q-item-side right>
               <q-item-tile
-                :icon="$q.icon.uploader[file.__doneUploading ? 'done' : 'clear']"
+                :icon="$q.icon.uploader[task.uploaded ? 'done' : 'clear']"
                 :color="color"
                 class="cursor-pointer"
-                @click.native="__remove(file)"
+                @click.native="__remove(task)"
               ></q-item-tile>
             </q-item-side>
           </q-item>
@@ -143,11 +143,27 @@ import { QIcon } from '../icon'
 import { QProgress } from '../progress'
 import { QItem, QItemSide, QItemMain, QItemTile, QList } from '../list'
 import { QSlideTransition } from '../slide-transition'
+import uid from '../../utils/uid'
+import uploadHelpers from './uploadHelpers'
+
+const readFileAsDataURL = file => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = e => {
+      resolve(e.target.result)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+const isImage = file => {
+  return file.type.toUpperCase().startsWith('IMAGE')
+}
 
 function initFile (file) {
   file.__doneUploading = false
   file.__failed = false
-  file.__uploaded = 0
+  file.__uploadedBytes = 0
   file.__progress = 0
 }
 
@@ -174,10 +190,14 @@ export default {
     headers: Object,
     url: {
       type: String,
-      required: true
+      required: false
     },
     urlFactory: {
       type: Function,
+      required: false
+    },
+    custom: {
+      type: Object,
       required: false
     },
     additionalFields: {
@@ -190,6 +210,11 @@ export default {
     },
     extensions: String,
     multiple: Boolean,
+    parallelUploads: { // how many upload task to run simultaneously
+      type: Number,
+      required: false
+    },
+    autoStart: Boolean, // upload starts as soon as a file is ready
     hideUploadButton: Boolean,
     hideUploadProgress: Boolean,
     noThumbnails: Boolean,
@@ -199,36 +224,87 @@ export default {
     sendRaw: {
       type: Boolean,
       default: false
+    },
+    handleNewFile: {
+      type: Function,
+      required: false
     }
   },
   data () {
     return {
-      queue: [],
-      files: [],
-      uploading: false,
-      uploadedSize: 0,
-      totalSize: 0,
-      xhrs: [],
+      tasks: [],
+      canStartUploads: false,
       focused: false,
       dnd: false,
       expanded: false
     }
   },
   computed: {
-    queueLength () {
-      return this.queue.length
+    uploader () {
+      let uploader
+      if (this.custom && this.custom.uploader) { // we won't use the default 'url' (xhr) method
+        if (typeof this.custom.uploader === 'string') { // upload with a predefined upload helper
+          if (uploadHelpers[this.custom.uploader]) { // We check the helper exists
+            uploader = Object.assign({}, uploadHelpers[this.custom.uploader], {helperName: this.custom.uploader})
+          }
+          else { // helper not found
+            console.error(`Upload helper ${this.custom.uploader} not found. Try null, 'url' or 'firebase-storage'.`)
+          }
+        }
+        else if (typeof this.custom.uploader === 'function') {
+          uploader = { create: this.custom.uploader }
+        }
+        else {
+          console.error(`custom.uploader should be null, or a Function, or a String ('url' or 'firebase-storage'). Got a ${typeof this.custom.uploader}`)
+        }
+      }
+      else { // default upload method, supposed to be compatible with previous versions of QUploader
+        uploader = Object.assign({}, uploadHelpers['url'], {helperName: 'url'})
+      }
+      if (uploader.checker) { // helpers come with a 'checker' functions that will check the vm/custom prop
+        const check = uploader.checker({ vm: this })
+        if (check.err) console.error(check.err)
+      }
+      return uploader
+    },
+    uploadingTasks () {
+      return this.tasks.filter(task => task.uploading)
+    },
+    acceptedTasks () {
+      return this.tasks.filter(task => task.accepted)
+    },
+    queuedTasks () {
+      return this.tasks.filter(task => task.accepted && !task.uploading && !task.uploaded && !task.failed)
+    },
+    failedTasks () {
+      return this.tasks.filter(task => task.failed)
+    },
+    queuedOrFailedTasks () {
+      return [...this.queuedTasks, ...this.failedTasks]
+    },
+    queuedOrUploadingTasks () {
+      return [...this.queuedTasks, ...this.uploadingTasks]
+    },
+    shouldStartUploads () {
+      return this.canStartUploads || this.autoStart
     },
     hasExpandedContent () {
-      return this.files.length > 0
+      return this.tasks.length > 0
+    },
+    totalSizeBytes () {
+      return this.acceptedTasks.reduce((total, task) => total + task.file.size, 0)
+    },
+    totalProgressBytes () {
+      return this.acceptedTasks.reduce((total, task) => total + task.progressBytes, 0)
+    },
+    totalProgressPercent () {
+      return this.totalSizeBytes ? Math.min(100, this.totalProgressBytes / this.totalSizeBytes * 100) : 0
     },
     label () {
-      const total = humanStorageSize(this.totalSize)
-      return this.uploading
-        ? `${(this.progress).toFixed(2)}% (${humanStorageSize(this.uploadedSize)} / ${total})`
-        : `${this.queueLength} (${total})`
-    },
-    progress () {
-      return this.totalSize ? Math.min(99.99, this.uploadedSize / this.totalSize * 100) : 0
+      const total = humanStorageSize(this.totalSizeBytes)
+      return this.uploadingTasks.length
+        ? `${(this.totalProgressPercent).toFixed(2)}% (${humanStorageSize(this.totalProgressBytes)} / ${total})`
+        : `${this.acceptedTasks.length} (${total})`
     },
     addDisabled () {
       return !this.multiple && this.queueLength >= 1
@@ -276,15 +352,139 @@ export default {
       else if (this.autoExpand) {
         this.expanded = true
       }
+    },
+    shouldStartUploads () {
+      if (this.shouldStartUploads) {
+        this.__processQueue()
+      }
+    },
+    uploadingTasks () {
+      this.__processQueue()
     }
   },
   methods: {
-    add (files) {
-      if (files) {
-        this.__add(null, files)
+    __handNewFileList (fileList) {
+      // debugger
+      const filesArray = Array.prototype.slice.call(fileList) // Convert FileList to regular Array
+      filesArray.forEach(this.__handleNewFile) // process each file one-by-one
+    },
+    __handleFileInputChange (e) {
+      // debugger
+      this.__handNewFileList(e.target.files)
+      this.$refs.file.value = '' // remove all files from the <Input />
+    },
+    add (files, strict) { // method called from outside
+      if (!Array.isArray(files)) return // caller is unlikely to provide a FileList (?)
+      if (strict) { // caller wants to enforce all the checking process
+        files.forEach(this.__handleNewFile)
+      }
+      else { // caller wants to force-add files
+        files.forEach(this.__acceptFile)
       }
     },
-
+    __handleNewFile (file) {
+      // debugger
+      if (this.addDisabled) return // disabled by prop
+      if (this.tasks.some(task => task.file.name === file.name && task.file.size === file.size)) return // file already added
+      if (!this.multiple && this.tasks.length) return // only one file allowed ; we should replace it // TODO
+      // we wrap file in an object so we can avoid mutating its own properties.
+      const task = {
+        file,
+        uid: uid(),
+        filename: file.name, // might be mutated later
+        humanSize: humanStorageSize(file.size),
+        isImage: isImage(file),
+        imgSrc: null,
+        accepted: false,
+        rejected: false,
+        uploading: false,
+        progressBytes: 0,
+        progressPercent: 0,
+        uploaded: false,
+        failed: false,
+        uploader: null
+      }
+      if (task.isImage) {
+        readFileAsDataURL(file).then(src => { // async, but the view is reactive to the imgSrc property, so OK
+          task.imgSrc = src
+        })
+      }
+      this.__hookNewTask(task)
+    },
+    __hookNewTask (task) {
+      /* const next = this.tasks.push
+      const currentQueue = this.tasks
+      if (this.hookNewTask) { // custom hook can be provided by prop
+        this.hookNewTask({task, next, cancel, currentQueue}) // we export appropriate vars
+      }
+      else {
+        this.
+      } */
+      task.accepted = true
+      this.__hookUploadPromise(task)
+    },
+    __hookUploadPromise (task) {
+      const uploaderArguments = { // common arguments passed to all upload helpers
+        task,
+        additionalFields: this.additionalFields,
+        updateProgressBytes: progress => { this.__updateProgressBytes({task, progress}) },
+        success: () => { this.__completeTask(task) },
+        failure: err => { this.__failTask(task, err) }
+      }
+      if (this.uploader.helperName === 'url') { // specific arguments for the url/urlFactory helper
+        Object.assign(uploaderArguments, {
+          url: (this.url && this.url.length) ? this.url : this.urlFactory,
+          xhrMethod: this.method,
+          xhrHeaders: this.headers,
+          xhrRawFile: this.sendRaw
+        })
+      }
+      if (this.uploader.helperName === 'firebase-storage') { // specific arguments for the firebase-storage helper
+        Object.assign(uploaderArguments, {
+          ref: this.custom.ref,
+          refFactory: this.custom.refFactory
+        })
+      }
+      task.uploader = {
+        start: this.uploader.create(uploaderArguments)
+      }
+      this.tasks.push(task)
+    },
+    __startUpload (task) {
+      task.uploading = true
+      task.uploader.start().then(methods => {
+        task.uploader.abort = methods.abort
+        task.uploader.pause = methods.pause //    assigned one by one so you're aware these
+        task.uploader.resume = methods.resume //  methods may exist. They can be used in Hooks
+      })
+    },
+    __updateProgressBytes ({task, progress, total}) {
+      let totalBytes = total || task.file.size
+      task.progressBytes = progress
+      const progressPercentRaw = totalBytes ? progress / totalBytes : 0
+      task.progressPercent = Math.min(100, parseInt(progressPercentRaw * 100, 10))
+    },
+    __completeTask (task) {
+      task.uploaded = true
+      task.uploading = false
+    },
+    __failTask (task, err) {
+      task.uploading = false
+      task.failed = true
+    },
+    __abortUpload (task) {
+      task.uploading = false
+      task.uploader.abort()
+    },
+    __processQueue () {
+      if (!this.shouldStartUploads) return
+      const queued = this.queuedTasks
+      const uploading = this.uploadingTasks
+      if (!queued.length) return // TODO : add failed tasks ?
+      if (this.parallelUploads && uploading.length >= this.parallelUploads) return // max parallel uploads reched
+      const nextTask = queued[0]
+      this.__startUpload(nextTask)
+    },
     __onDragOver () {
       this.dnd = true
     },
@@ -293,21 +493,7 @@ export default {
     },
     __onDrop (e) {
       this.dnd = false
-      let files = e.dataTransfer.files
-
-      if (files.length === 0) {
-        return
-      }
-
-      files = this.multiple ? files : [ files[0] ]
-      if (this.extensions) {
-        files = this.__filter(files)
-        if (files.length === 0) {
-          return
-        }
-      }
-
-      this.__add(null, files)
+      this.__handNewFileList(e.dataTransfer.files)
     },
     __filter (files) {
       return Array.prototype.filter.call(files, file => {
@@ -318,78 +504,16 @@ export default {
       })
     },
     __add (e, files) {
-      if (this.addDisabled) {
-        return
-      }
-
-      files = Array.prototype.slice.call(files || e.target.files)
-      this.$refs.file.value = ''
-
-      let filesReady = [] // List of image load promises
-      files = files.filter(file => !this.queue.some(f => file.name === f.name))
-        .map(file => {
-          initFile(file)
-          file.__size = humanStorageSize(file.size)
-          file.__timestamp = new Date().getTime()
-
-          if (this.noThumbnails || !file.type.toUpperCase().startsWith('IMAGE')) {
-            this.queue.push(file)
-          }
-          else {
-            const reader = new FileReader()
-            let p = new Promise((resolve, reject) => {
-              reader.onload = e => {
-                let img = new Image()
-                img.src = e.target.result
-                file.__img = img
-                this.queue.push(file)
-                this.__computeTotalSize()
-                resolve(true)
-              }
-              reader.onerror = e => { reject(e) }
-            })
-
-            reader.readAsDataURL(file)
-            filesReady.push(p)
-          }
-
-          return file
-        })
-
-      if (files.length > 0) {
-        this.files = this.files.concat(files)
-        Promise.all(filesReady).then(() => {
-          this.$emit('add', files)
-        })
-        this.__computeTotalSize()
-      }
     },
-    __computeTotalSize () {
-      this.totalSize = this.queueLength
-        ? this.queue.map(f => f.size).reduce((total, size) => total + size)
-        : 0
-    },
-    __remove (file) {
-      const
-        name = file.name,
-        done = file.__doneUploading
-
-      if (this.uploading && !done) {
-        this.$emit('remove:abort', file, file.xhr)
-        file.xhr.abort()
-        this.uploadedSize -= file.__uploaded
+    __remove (task) {
+      if (task.uploading) {
+        this.__abortUpload(task)
+        this.$emit('remove:abort', task.file, task.file.xhr)
       }
       else {
-        this.$emit(`remove:${done ? 'done' : 'cancel'}`, file, file.xhr)
+        this.$emit(`remove:${task.uploaded ? 'done' : 'cancel'}`, task.file, task.file.xhr)
+        this.tasks = this.tasks.filter(t => t.uid !== task.uid)
       }
-
-      if (!done) {
-        this.queue = this.queue.filter(obj => obj.name !== name)
-      }
-
-      file.__removed = true
-      this.files = this.files.filter(obj => obj.name !== name)
-      this.__computeTotalSize()
     },
     __pick () {
       if (!this.addDisabled && this.$q.platform.is.mozilla) {
@@ -475,44 +599,17 @@ export default {
       }
     },
     upload () {
-      const length = this.queueLength
-      if (this.disable || length === 0) {
-        return
-      }
-
-      let filesDone = 0
-      this.uploadedSize = 0
-      this.uploading = true
-      this.xhrs = []
+      if (this.disable) return
+      this.canStartUploads = true
       this.$emit('start')
-
-      let solved = () => {
-        filesDone++
-        if (filesDone === length) {
-          this.uploading = false
-          this.xhrs = []
-          this.queue = this.queue.filter(f => !f.__doneUploading)
-          this.__computeTotalSize()
-          this.$emit('finish')
-        }
-      }
-
-      this.queue
-        .map(file => this.__getUploadPromise(file))
-        .forEach(promise => {
-          promise.then(solved).catch(solved)
-        })
     },
     abort () {
-      this.xhrs.forEach(xhr => { xhr.abort() })
-      this.uploading = false
+      this.tasks.forEach(task => { task.uploader.abort() })
     },
     reset () {
       this.abort()
-      this.files = []
-      this.queue = []
+      this.tasks = []
       this.expanded = false
-      this.__computeTotalSize()
       this.$emit('reset')
     }
   }
