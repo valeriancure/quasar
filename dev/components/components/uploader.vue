@@ -199,7 +199,7 @@ if (firebase && firebaseStorageConfig) {
 const mockUploadHelper = {
   create ({task, updateProgressBytes, success, failure}) {
     const start = () => {
-      let speed = Math.pow(2, 16)
+      let speed = Math.pow(2, 14)
       let uploadedBytes = 0
       let aborted
       const abort = () => {
@@ -214,7 +214,7 @@ const mockUploadHelper = {
           updateProgressBytes(uploadedBytes)
           if (uploadedBytes >= task.file.size) success()
           else fakeProgresser()
-        }, 1000)
+        }, Math.floor(250 * (1 - Math.random() / 3)))
       }
       fakeProgresser()
       return Promise.resolve({ abort })
