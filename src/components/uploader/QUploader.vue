@@ -466,12 +466,10 @@ export default {
       this.dnd = false
       this.__handleNewFileList(e.dataTransfer.files)
     },
-    __filter (files) {
-      return Array.prototype.filter.call(files, file => {
-        return this.computedExtensions.some(ext => {
-          return file.type.toUpperCase().startsWith(ext.toUpperCase()) ||
-            file.name.toUpperCase().endsWith(ext.toUpperCase())
-        })
+    __checkExtensionOrType (file) {
+      return this.computedExtensions.some(ext => {
+        return file.type.toUpperCase().startsWith(ext.toUpperCase()) ||
+          file.name.toUpperCase().endsWith(ext.toUpperCase())
       })
     },
     __add (e, files) {
