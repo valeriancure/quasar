@@ -141,6 +141,9 @@ export default {
     icon: 'play_arrow'
   },
   uploader: {
+    pause: 'pause circle outline',
+    resume: 'play circle outline',
+    retry: 'replay',
     done: 'done',
     clear: 'cancel',
     clearInverted: 'clear',

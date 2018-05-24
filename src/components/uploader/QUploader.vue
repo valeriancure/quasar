@@ -109,7 +109,39 @@
 
             <q-item-main :label="task.file.name" :sublabel="task.humanSize"></q-item-main>
 
-            <q-item-side right>
+            <q-item-side right v-if="task.uploading && !task.paused && task.uploader.pause">
+              <q-item-tile
+                :icon="$q.icon.uploader.pause"
+                :color="color"
+                class="cursor-pointer"
+                @click.native="__pause(task)"
+              ></q-item-tile>
+            </q-item-side>
+            <q-item-side right v-else-if="task.uploading && !task.uploader.pause">
+              <q-item-tile
+                :icon="$q.icon.uploader.clear"
+                :color="color"
+                class="cursor-pointer"
+                @click.native="__remove(task)"
+              ></q-item-tile>
+            </q-item-side>
+            <q-item-side right v-else-if="task.uploaded">
+              <q-item-tile
+                :icon="$q.icon.uploader[task.uploaded ? 'done' : 'clear']"
+                :color="color"
+                class="cursor-pointer"
+                @click.native="__remove(task)"
+              ></q-item-tile>
+            </q-item-side>
+            <q-item-side right v-else-if="task.paused && task.uploader.resume">
+              <q-item-tile
+                :icon="$q.icon.uploader.resume"
+                :color="color"
+                class="cursor-pointer"
+                @click.native="__resume(task)"
+              ></q-item-tile>
+            </q-item-side>
+            <q-item-side right v-else>
               <q-item-tile
                 :icon="$q.icon.uploader[task.uploaded ? 'done' : 'clear']"
                 :color="color"
@@ -370,6 +402,7 @@ export default {
     },
     __handleNewFile (file) {
       if (this.addDisabled) return // disabled by prop
+      if (!this.__checkExtensionOrType(file)) return // extension and type don't match
       if (this.tasks.some(task => task.file.name === file.name && task.file.size === file.size)) return // file already added
       if (!this.multiple && this.tasks.length) return // only one file allowed ; we should replace it // TODO
       // we wrap file in an object so we can avoid mutating its own properties.
@@ -425,8 +458,7 @@ export default {
       task.uploading = true
       task.uploader.start().then(methods => {
         task.uploader.abort = methods.abort
-        task.uploader.pause = methods.pause //    assigned one by one so you're aware these
-        task.uploader.resume = methods.resume //  methods may exist. They can be used in Hooks
+        task.uploader.pause = methods.pause
       })
     },
     __updateProgressBytes ({task, progress, total}) {
@@ -473,6 +505,31 @@ export default {
       })
     },
     __add (e, files) {
+    },
+    __pause (task) {
+      if (task.uploader.pause) {
+        task.paused = true
+        console.log('pause')
+        Promise.resolve(task.uploader.pause()) // pause() might return a promise or not so we wrap in a Promise.resolve()
+          .then(res => { // { paused, resume }
+            console.log('pause', {res})
+            task.paused = res.paused
+            task.uploader.resume = res.resume
+          })
+          .catch(err => {
+            console.log('pause', {err})
+          })
+      }
+    },
+    __resume (task) {
+      if (task.uploader.resume) {
+        task.paused = false
+        Promise.resolve(task.uploader.resume()) // resume() might return a promise or not so we wrap in a Promise.resolve()
+          .then(res => { // { resumed }
+            task.paused = !res.resumed
+            task.uploader.resume = null
+          })
+      }
     },
     __remove (task) {
       if (task.uploading) {

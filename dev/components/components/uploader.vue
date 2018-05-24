@@ -162,14 +162,10 @@ const mockUploadHelper = {
     const start = () => {
       let speed = Math.pow(2, 14)
       let uploadedBytes = 0
-      let aborted
-      const abort = () => {
-        aborted = true
-        failure()
-      }
+      let aborted, paused
       const fakeProgresser = () => {
         setTimeout(() => {
-          if (aborted) return
+          if (aborted || paused) return
           const bytes = Math.floor(speed * (1 + Math.random() / 3))
           uploadedBytes = Math.min(uploadedBytes + bytes, task.file.size)
           updateProgressBytes(uploadedBytes)
@@ -177,8 +173,24 @@ const mockUploadHelper = {
           else fakeProgresser()
         }, Math.floor(250 * (1 - Math.random() / 3)))
       }
+      const abort = () => {
+        aborted = true
+        failure()
+      }
+      const resume = () => {
+        paused = false
+        fakeProgresser()
+        return ({ resumed: true })
+      }
+      const pause = () => {
+        paused = true
+        return {
+          paused,
+          resume
+        }
+      }
       fakeProgresser()
-      return Promise.resolve({ abort })
+      return Promise.resolve({ abort, pause })
     }
     return start
   }
@@ -223,7 +235,7 @@ export default {
   },
   methods: {
     pick (ref) {
-      this.$refs[ref].pick()
+      this.$refs[ref][0].pick()
     },
     clear () {
       this.events = []
