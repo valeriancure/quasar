@@ -132,13 +132,6 @@ import { QSlideTransition } from '../slide-transition'
 import uid from '../../utils/uid'
 import uploadHelpers from './uploadHelpers'
 
-function initFile (file) {
-  file.__doneUploading = false
-  file.__failed = false
-  file.__uploadedBytes = 0
-  file.__progress = 0
-}
-
 export default {
   name: 'QUploader',
   mixins: [FrameMixin],
@@ -369,11 +362,6 @@ export default {
         uploader: null
       }
       this.__initState(task)
-      if (task.isImage) {
-        this.__readFileAsDataURLPromise(file).then(src => { // async, but the view is reactive to the imgSrc property, so OK
-          task.imgSrc = src
-        })
-      }
       this.__handleNewTask(task)
     },
     __initState (task) {
@@ -414,7 +402,10 @@ export default {
         })
       }
       task.uploader = {
-        start: this.uploadHelper.create(uploaderArguments)
+        start: this.uploadHelper.create(uploaderArguments),
+        pause: null, // for reactivity in child prop
+        resume: null, // idem
+        abort: null // idem
       }
     },
     __startUpload (task) {
@@ -538,79 +529,6 @@ export default {
         this.$refs.file.click()
       }
     },
-    __getUploadPromise (file) {
-      const
-        form = new FormData(),
-        xhr = new XMLHttpRequest()
-
-      try {
-        this.additionalFields.forEach(field => {
-          form.append(field.name, field.value)
-        })
-        form.append('Content-Type', file.type || 'application/octet-stream')
-        form.append(this.name, file)
-      }
-      catch (e) {
-        return
-      }
-
-      initFile(file)
-      file.xhr = xhr
-      return new Promise((resolve, reject) => {
-        xhr.upload.addEventListener('progress', e => {
-          if (file.__removed) { return }
-          e.percent = e.total ? e.loaded / e.total : 0
-          let uploaded = e.percent * file.size
-          this.uploadedSize += uploaded - file.__uploaded
-          file.__uploaded = uploaded
-          file.__progress = Math.min(99, parseInt(e.percent * 100, 10))
-        }, false)
-
-        xhr.onreadystatechange = () => {
-          if (xhr.readyState < 4) {
-            return
-          }
-          if (xhr.status && xhr.status < 400) {
-            file.__doneUploading = true
-            file.__progress = 100
-            this.$emit('uploaded', file, xhr)
-            resolve(file)
-          }
-          else {
-            file.__failed = true
-            this.$emit('fail', file, xhr)
-            reject(xhr)
-          }
-        }
-
-        xhr.onerror = () => {
-          file.__failed = true
-          this.$emit('fail', file, xhr)
-          reject(xhr)
-        }
-
-        const resolver = this.urlFactory
-          ? this.urlFactory(file)
-          : Promise.resolve(this.url)
-
-        resolver.then(url => {
-          xhr.open(this.method, url, true)
-          if (this.headers) {
-            Object.keys(this.headers).forEach(key => {
-              xhr.setRequestHeader(key, this.headers[key])
-            })
-          }
-
-          this.xhrs.push(xhr)
-          if (this.sendRaw) {
-            xhr.send(file)
-          }
-          else {
-            xhr.send(form)
-          }
-        })
-      })
-    },
     pick () {
       if (!this.addDisabled) {
         this.$refs.file.click()
@@ -637,14 +555,6 @@ export default {
       else if (f instanceof FileList) filesArray = Array.prototype.slice.call(f)
       else if (Array.isArray(f)) filesArray = f
       return filesArray
-    },
-    __readFileAsDataURLPromise (file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = e => { resolve(e.target.result) }
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
     },
     __isImage (file) {
       return file.type.toUpperCase().startsWith('IMAGE')

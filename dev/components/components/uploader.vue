@@ -174,11 +174,17 @@ const mockUploadHelper = {
         }, Math.floor(250 * (1 - Math.random() / 3)))
       }
       const abort = () => {
-        aborted = true
-        failure()
+        const fakeLag = Math.floor(500 * (1 + Math.random()))
+        return new Promise(resolve => {
+          setTimeout(() => {
+            aborted = true
+            failure()
+            resolve({ aborted: true })
+          }, fakeLag)
+        })
       }
       const resume = () => {
-        const fakeLag = Math.floor(2000 * (1 + Math.random()))
+        const fakeLag = Math.floor(1500 * (1 + Math.random()))
         return new Promise(resolve => {
           setTimeout(() => {
             paused = false
@@ -188,7 +194,7 @@ const mockUploadHelper = {
         })
       }
       const pause = () => {
-        const fakeLag = Math.floor(1000 * (1 + Math.random()))
+        const fakeLag = Math.floor(800 * (1 + Math.random()))
         return new Promise(resolve => {
           setTimeout(() => {
             paused = true

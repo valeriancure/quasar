@@ -11,8 +11,10 @@
       {{ task.progressPercent }}%
     </div>
 
-    <q-item-side v-if="task.isImage && task.imgSrc" :image="task.imgSrc"></q-item-side>
-    <q-item-side v-else :icon="$q.icon.uploader.file" :color="color"></q-item-side>
+    <q-item-side v-show="imgLoaded">
+      <img ref="img" class="q-item-image" />
+    </q-item-side>
+    <q-item-side v-show="!imgLoaded" :icon="$q.icon.uploader.file" :color="color"></q-item-side>
 
     <q-item-main :label="task.file.name" :sublabel="task.humanSize"></q-item-main>
 
@@ -79,45 +81,65 @@ export default {
   },
   data () {
     return {
+      imgLoaded: false
     }
   },
   computed: {
+    state () {
+      const task = this.task
+      return {
+        pausing: task.pausing,
+        resuming: task.resuming,
+        aborting: task.aborting,
+        canPause: task.uploader.pause,
+        canResume: task.uploader.resume,
+        canAbort: task.uploader.abort,
+        paused: task.paused,
+        failed: task.failed,
+        uploading: task.uploading,
+        uploaded: task.uploaded
+      }
+    },
     uploaderAction () {
-      const { task } = this
-      if (task.pausing || task.resuming) { // loading
+      const { state } = this
+      console.log('computing uploaderAction')
+      if (state.aborting) return null
+      if (state.pausing || state.resuming) { // loading
         return { loading: true }
       }
-      if (task.uploader.pause && !task.paused) { // pausable
-        return {
-          icon: 'pause',
-          action: this.__pause
-        }
-      }
-      if (task.uploader.resume && task.paused) { // resumable
-        return {
-          icon: 'resume',
-          action: this.__resume
-        }
-      }
-      if (task.failed) { // retry after fail
+      if (state.failed) { // retry after fail
         return {
           icon: 'retry',
           action: this.__retry
         }
       }
+      if (state.canPause && !state.paused) { // pausable
+        return {
+          icon: 'pause',
+          action: this.__pause
+        }
+      }
+      if (state.canResume && state.paused) { // resumable
+        return {
+          icon: 'resume',
+          action: this.__resume
+        }
+      }
+      return null
     },
     taskAction () {
-      const { task } = this
-      if (task.aborting) { // loading
+      const { state } = this
+      console.log('computing taskAction')
+      if (state.aborting) { // loading
         return { loading: true }
       }
-      if (task.uploaded) {
+      if (state.uploaded) {
         return {
           icon: 'discard',
           action: this.__discard
         }
       }
-      if (task.uploader.abort && !task.failed) {
+      if (state.canAbort && !state.failed) {
         return {
           icon: 'abort',
           action: this.__abort
@@ -129,7 +151,13 @@ export default {
       }
     }
   },
+  mounted () {
+    this.injectImgSrc()
+  },
   watch: {
+    'task.uid' () {
+      this.injectImgSrc()
+    }
   },
   methods: {
     __pause () {
@@ -149,6 +177,23 @@ export default {
     },
     __delete (task) {
       this.$emit('delete', this.task)
+    },
+    __readFileAsDataURLPromise (file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = e => { resolve(e.target.result) }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+    },
+    injectImgSrc () {
+      if (this.task.isImage) {
+        this.imgLoaded = false
+        this.__readFileAsDataURLPromise(this.task.file).then(src => {
+          this.$refs['img'].src = src
+          this.imgLoaded = true
+        })
+      }
     }
   }
 }

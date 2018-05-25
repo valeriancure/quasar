@@ -38,7 +38,10 @@ const createWithUrl = ({task, additionalFields, updateProgressBytes, success, fa
         })
       }
       xhr.send(xhrRawFile ? file : form)
-      const abort = () => { xhr.abort() } // can't assign abort = xhr.abort (TypeError: Illegal invocation)
+      const abort = () => {
+        xhr.abort()
+        return { aborted: true }
+      }
       return Promise.resolve({ abort })
     })
   }
@@ -102,7 +105,8 @@ const createWithFirebaseStorage = ({task, additionalFields, updateProgressBytes,
         success()
       })
       const abort = () => {
-        uploadTask.cancel()
+        const aborted = uploadTask.cancel()
+        return { aborted }
       }
       const pause = () => {
         const resume = () => {
