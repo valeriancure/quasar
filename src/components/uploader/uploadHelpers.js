@@ -101,11 +101,21 @@ const createWithFirebaseStorage = ({task, additionalFields, updateProgressBytes,
         // upload successful
         success()
       })
-      return Promise.resolve({
-        abort: () => { uploadTask.cancel() },
-        pause: () => { uploadTask.pause() }, // pause/resume not used by current QUploader
-        resume: () => { uploadTask.resume() } // but might be used in Hooks
-      })
+      const abort = () => {
+        uploadTask.cancel()
+      }
+      const pause = () => {
+        const resume = () => {
+          const resumed = uploadTask.resume() // returns true if resume() had an effect
+          return { resumed }
+        }
+        const paused = uploadTask.pause() // returns true if pause() had an effect
+        return {
+          paused,
+          resume: paused ? resume : null
+        }
+      }
+      return Promise.resolve({ abort, pause })
     })
   }
   return start

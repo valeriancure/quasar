@@ -89,67 +89,20 @@
     <q-slide-transition>
       <div v-show="expanded" :class="expandClass" :style="expandStyle">
         <q-list :dark="dark" class="q-uploader-files q-py-none scroll" :style="filesStyle">
-          <q-item
+          <q-uploader-task
             v-for="task in tasks"
+            :task="task"
             :key="task.uid"
+            :color="color"
+            :progressColor="progressColor"
             class="q-uploader-file q-pa-xs"
-          >
-            <q-progress v-if="!hideUploadProgress"
-              class="q-uploader-progress-bg absolute-full"
-              :color="task.failed ? 'negative' : progressColor"
-              :percentage="task.progressPercent"
-              height="100%"
-            ></q-progress>
-            <div class="q-uploader-progress-text absolute" v-if="!hideUploadProgress">
-              {{ task.progressPercent }}%
-            </div>
-
-            <q-item-side v-if="task.isImage && task.imgSrc" :image="task.imgSrc"></q-item-side>
-            <q-item-side v-else :icon="$q.icon.uploader.file" :color="color"></q-item-side>
-
-            <q-item-main :label="task.file.name" :sublabel="task.humanSize"></q-item-main>
-
-            <q-item-side right v-if="task.uploading && !task.paused && task.uploader.pause">
-              <q-item-tile
-                :icon="$q.icon.uploader.pause"
-                :color="color"
-                class="cursor-pointer"
-                @click.native="__pause(task)"
-              ></q-item-tile>
-            </q-item-side>
-            <q-item-side right v-else-if="task.uploading && !task.uploader.pause">
-              <q-item-tile
-                :icon="$q.icon.uploader.clear"
-                :color="color"
-                class="cursor-pointer"
-                @click.native="__remove(task)"
-              ></q-item-tile>
-            </q-item-side>
-            <q-item-side right v-else-if="task.uploaded">
-              <q-item-tile
-                :icon="$q.icon.uploader[task.uploaded ? 'done' : 'clear']"
-                :color="color"
-                class="cursor-pointer"
-                @click.native="__remove(task)"
-              ></q-item-tile>
-            </q-item-side>
-            <q-item-side right v-else-if="task.paused && task.uploader.resume">
-              <q-item-tile
-                :icon="$q.icon.uploader.resume"
-                :color="color"
-                class="cursor-pointer"
-                @click.native="__resume(task)"
-              ></q-item-tile>
-            </q-item-side>
-            <q-item-side right v-else>
-              <q-item-tile
-                :icon="$q.icon.uploader[task.uploaded ? 'done' : 'clear']"
-                :color="color"
-                class="cursor-pointer"
-                @click.native="__remove(task)"
-              ></q-item-tile>
-            </q-item-side>
-          </q-item>
+            @pause="__pause"
+            @resume="__resume"
+            @retry="__retry"
+            @abort="__abort"
+            @discard="__discard"
+            @delete="__discard"
+          />
         </q-list>
       </div>
     </q-slide-transition>
@@ -167,6 +120,7 @@
 </template>
 
 <script>
+import QUploaderTask from './QUploaderTask'
 import { QInputFrame } from '../input-frame'
 import FrameMixin from '../../mixins/input-frame'
 import { humanStorageSize } from '../../utils/format'
@@ -189,6 +143,7 @@ export default {
   name: 'QUploader',
   mixins: [FrameMixin],
   components: {
+    QUploaderTask,
     QInputFrame,
     QSpinner,
     QIcon,
@@ -289,10 +244,10 @@ export default {
       return this.tasks.filter(task => task.uploading)
     },
     acceptedTasks () {
-      return this.tasks.filter(task => task.accepted)
+      return this.tasks.filter(task => !task.rejected)
     },
     queuedTasks () {
-      return this.tasks.filter(task => task.accepted && !task.uploading && !task.uploaded && !task.failed)
+      return this.acceptedTasks.filter(task => !task.uploading && !task.uploaded && !task.failed)
     },
     failedTasks () {
       return this.tasks.filter(task => task.failed)
@@ -350,16 +305,14 @@ export default {
       return this.dark ? 'white' : 'grey'
     },
     computedExtensions () {
-      if (this.extensions) {
-        return this.extensions.split(',').map(ext => {
-          ext = ext.trim()
-          // support "image/*"
-          if (ext.endsWith('/*')) {
-            ext = ext.slice(0, ext.length - 1)
-          }
-          return ext
-        })
-      }
+      return (this.extensions || '').split(',').map(ext => {
+        ext = ext.trim()
+        // support "image/*"
+        if (ext.endsWith('/*')) {
+          ext = ext.slice(0, ext.length - 1)
+        }
+        return ext
+      })
     }
   },
   watch: {
@@ -413,15 +366,9 @@ export default {
         humanSize: humanStorageSize(file.size),
         isImage: this.__isImage(file),
         imgSrc: null,
-        accepted: false,
-        rejected: false,
-        uploading: false,
-        progressBytes: 0,
-        progressPercent: 0,
-        uploaded: false,
-        failed: false,
         uploader: null
       }
+      this.__initState(task)
       if (task.isImage) {
         this.__readFileAsDataURLPromise(file).then(src => { // async, but the view is reactive to the imgSrc property, so OK
           task.imgSrc = src
@@ -429,9 +376,26 @@ export default {
       }
       this.__handleNewTask(task)
     },
+    __initState (task) {
+      const state = {
+        rejected: false,
+        uploading: false,
+        uploaded: false,
+        progressBytes: 0,
+        progressPercent: 0,
+        pausing: false,
+        resuming: false,
+        paused: false,
+        aborting: false,
+        failed: false
+      }
+      Object.assign(task, state)
+    },
     __handleNewTask (task) {
-      task.accepted = true
-      this.__addUploaderToTask(task)
+      if (!task.rejected) {
+        this.__addUploaderToTask(task)
+        this.tasks.push(task)
+      }
     },
     __addUploaderToTask (task) {
       const uploaderArguments = { // common arguments passed to all upload helpers
@@ -452,13 +416,13 @@ export default {
       task.uploader = {
         start: this.uploadHelper.create(uploaderArguments)
       }
-      this.tasks.push(task)
     },
     __startUpload (task) {
       task.uploading = true
       task.uploader.start().then(methods => {
         task.uploader.abort = methods.abort
         task.uploader.pause = methods.pause
+        task.uploader.resume = null // declared for reactivity. Will be set if pause() is called.
       })
     },
     __updateProgressBytes ({task, progress, total}) {
@@ -507,39 +471,67 @@ export default {
     __add (e, files) {
     },
     __pause (task) {
-      if (task.uploader.pause) {
-        task.paused = true
-        console.log('pause')
+      console.log('__pause')
+      if (task.uploader.pause && !task.pausing) {
+        task.pausing = true
+        console.log('pausing ...')
         Promise.resolve(task.uploader.pause()) // pause() might return a promise or not so we wrap in a Promise.resolve()
           .then(res => { // { paused, resume }
             console.log('pause', {res})
+            task.pausing = false
             task.paused = res.paused
+            console.log('paused !')
             task.uploader.resume = res.resume
           })
           .catch(err => {
+            task.pausing = false
             console.log('pause', {err})
           })
       }
     },
     __resume (task) {
-      if (task.uploader.resume) {
-        task.paused = false
+      console.log('__resume')
+      if (task.uploader.resume && !task.resuming) {
+        task.resuming = true
+        console.log('resuming ...')
         Promise.resolve(task.uploader.resume()) // resume() might return a promise or not so we wrap in a Promise.resolve()
           .then(res => { // { resumed }
+            console.log('resumed')
+            task.resuming = false
             task.paused = !res.resumed
             task.uploader.resume = null
           })
+          .catch(err => {
+            task.resuming = false
+            console.log('resume', {err})
+          })
       }
     },
-    __remove (task) {
-      if (task.uploading) {
-        this.__abortUpload(task)
-        this.$emit('remove:abort', task.file, task.file.xhr)
+    __retry (task) {
+      this.__initState(task)
+      this.__addUploaderToTask(task)
+      this.__processQueue()
+    },
+    __abort (task) {
+      console.log('__abort')
+      if (task.uploader.abort && !task.aborting) {
+        task.aborting = true
+        console.log('aborting ...')
+        Promise.resolve(task.uploader.abort()) // abort() might return a promise or not so we wrap in a Promise.resolve()
+          .then(res => { // { aborted }
+            console.log('abort', {res})
+            task.aborting = false
+            task.failed = res.aborted
+            console.log('aborted !')
+          })
+          .catch(err => {
+            task.aborting = false
+            console.log('abort', {err})
+          })
       }
-      else {
-        this.$emit(`remove:${task.uploaded ? 'done' : 'cancel'}`, task.file, task.file.xhr)
-        this.tasks = this.tasks.filter(t => t.uid !== task.uid)
-      }
+    },
+    __discard (task) {
+      this.tasks = this.tasks.filter(t => t.uid !== task.uid)
     },
     __pick () {
       if (!this.addDisabled && this.$q.platform.is.mozilla) {

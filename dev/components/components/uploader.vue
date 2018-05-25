@@ -178,16 +178,23 @@ const mockUploadHelper = {
         failure()
       }
       const resume = () => {
-        paused = false
-        fakeProgresser()
-        return ({ resumed: true })
+        const fakeLag = Math.floor(2000 * (1 + Math.random()))
+        return new Promise(resolve => {
+          setTimeout(() => {
+            paused = false
+            fakeProgresser()
+            resolve({ resumed: true })
+          }, fakeLag)
+        })
       }
       const pause = () => {
-        paused = true
-        return {
-          paused,
-          resume
-        }
+        const fakeLag = Math.floor(1000 * (1 + Math.random()))
+        return new Promise(resolve => {
+          setTimeout(() => {
+            paused = true
+            resolve({ paused, resume })
+          }, fakeLag)
+        })
       }
       fakeProgresser()
       return Promise.resolve({ abort, pause })
