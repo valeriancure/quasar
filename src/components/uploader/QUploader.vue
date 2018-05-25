@@ -93,6 +93,7 @@
             v-for="task in tasks"
             :task="task"
             :key="task.uid"
+            :hide-upload-progress="hideUploadProgress"
             :color="color"
             :progressColor="progressColor"
             class="q-uploader-file q-pa-xs"
@@ -176,10 +177,12 @@ export default {
     },
     extensions: String,
     multiple: Boolean,
+    maxSize: Number,
     parallelUploads: { // how many upload task to run simultaneously
       type: Number,
       required: false
     },
+    maxFiles: Number,
     autoStart: Boolean, // upload starts as soon as a file is ready
     hideUploadButton: Boolean,
     hideUploadProgress: Boolean,
@@ -318,13 +321,11 @@ export default {
       }
     },
     shouldStartUploads () {
-      console.log('watcher shouldStartUploads', Date.now())
       if (this.shouldStartUploads) {
         this.__processQueue()
       }
     },
     uploadingTasks () {
-      console.log('watcher uploadingTasks', Date.now())
       this.__processQueue()
     }
   },
@@ -348,7 +349,9 @@ export default {
     },
     __handleNewFile (file) {
       if (this.addDisabled) return // disabled by prop
+      if (!this.__checkNumberOfFiles()) return
       if (!this.__checkExtensionOrType(file)) return // extension and type don't match
+      if (!this.__checkSize(file)) return
       if (this.tasks.some(task => task.file.name === file.name && task.file.size === file.size)) return // file already added
       if (!this.multiple && this.tasks.length) return // only one file allowed ; we should replace it // TODO
       // we wrap file in an object so we can avoid mutating its own properties.
@@ -424,6 +427,7 @@ export default {
     },
     __completeTask (task) {
       task.uploaded = true
+      task.failed = false
       task.uploading = false
     },
     __failTask (task, err) {
@@ -453,48 +457,45 @@ export default {
       this.dnd = false
       this.__handleNewFileList(e.dataTransfer.files)
     },
+    __checkNumberOfFiles () {
+      return !this.maxFiles || (this.tasks.length < this.maxFiles)
+    },
     __checkExtensionOrType (file) {
       return this.computedExtensions.some(ext => {
         return file.type.toUpperCase().startsWith(ext.toUpperCase()) ||
           file.name.toUpperCase().endsWith(ext.toUpperCase())
       })
     },
-    __add (e, files) {
+    __checkSize (file) {
+      return !this.maxSize || (file.size <= this.maxSize)
     },
     __pause (task) {
-      console.log('__pause')
       if (task.uploader.pause && !task.pausing) {
         task.pausing = true
-        console.log('pausing ...')
         Promise.resolve(task.uploader.pause()) // pause() might return a promise or not so we wrap in a Promise.resolve()
           .then(res => { // { paused, resume }
-            console.log('pause', {res})
             task.pausing = false
             task.paused = res.paused
-            console.log('paused !')
             task.uploader.resume = res.resume
           })
           .catch(err => {
             task.pausing = false
-            console.log('pause', {err})
+            this.__error({ err, task })
           })
       }
     },
     __resume (task) {
-      console.log('__resume')
       if (task.uploader.resume && !task.resuming) {
         task.resuming = true
-        console.log('resuming ...')
         Promise.resolve(task.uploader.resume()) // resume() might return a promise or not so we wrap in a Promise.resolve()
           .then(res => { // { resumed }
-            console.log('resumed')
             task.resuming = false
             task.paused = !res.resumed
             task.uploader.resume = null
           })
           .catch(err => {
             task.resuming = false
-            console.log('resume', {err})
+            this.__error({ err, task })
           })
       }
     },
@@ -504,20 +505,16 @@ export default {
       this.__processQueue()
     },
     __abort (task) {
-      console.log('__abort')
-      if (task.uploader.abort && !task.aborting) {
+      if (task.uploader.abort && !task.aborting && !task.uploaded) {
         task.aborting = true
-        console.log('aborting ...')
         Promise.resolve(task.uploader.abort()) // abort() might return a promise or not so we wrap in a Promise.resolve()
           .then(res => { // { aborted }
-            console.log('abort', {res})
             task.aborting = false
             task.failed = res.aborted
-            console.log('aborted !')
           })
           .catch(err => {
             task.aborting = false
-            console.log('abort', {err})
+            this.__error({ err, task })
           })
       }
     },
@@ -540,7 +537,8 @@ export default {
       this.$emit('start')
     },
     abort () {
-      this.tasks.forEach(task => { task.uploader.abort() })
+      this.canStartUploads = false
+      this.tasks.forEach(this.__abort)
     },
     reset () {
       this.abort()

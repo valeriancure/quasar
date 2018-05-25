@@ -103,7 +103,7 @@ export default {
     uploaderAction () {
       const { state } = this
       console.log('computing uploaderAction')
-      if (state.aborting) return null
+      if (state.aborting || state.uploaded) return null
       if (state.pausing || state.resuming) { // loading
         return { loading: true }
       }

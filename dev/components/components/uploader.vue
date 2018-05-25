@@ -5,20 +5,69 @@
         <q-tab v-for="tab in tabs" :key="`tab-${tab.name}`" :default="tab.name === 'mock'" slot="title" :name="tab.name" :icon="tab.icon" :label="tab.label" />
         <q-tab-pane v-for="tab in tabs" :name="tab.name" :key="`tab-pane-${tab.name}`">
           <div v-if="tab.name === 'mock'">
-            <h4>'Fake' upload helper, mocks upload progress with setTimeout().</h4>
+            <h5>'Fake' upload helper, mocks upload progress with setTimeout().</h5>
           </div>
           <div v-if="tab.name === 'xhr'">
-            <h4>Out of the box XMLHttpRequest upload helper.</h4>
+            <h5>Out of the box XMLHttpRequest upload helper.</h5>
             <q-input v-model="url" />
           </div>
           <div v-if="tab.name === 'firebase'">
-            <h4>Out of the box Firebase Storage upload helper.</h4>
+            <h5>Out of the box Firebase Storage upload helper.</h5>
             <div class="text-warning" v-for="alert in firebaseMissingFiles" :key="alert" v-html="alert" />
             <div class="text-warning" v-if="firebaseMissingFiles.length">
               You might have to restart your dev server after that.
             </div>
           </div>
-          <br>
+          <p class="caption">Customizable example</p>
+          <div class="row">
+            <q-input class="col-8" v-model="config.extensions" stack-label="extensions" />
+            <q-input class="col-4" v-model="config.maxWidth" stack-label="max-width (css)" />
+          </div>
+          <div class="row">
+            <q-input class="col" v-model="config.maxSize" stack-label="maxSize (bytes)" type="number" />
+            <q-input class="col" v-model="config.parallelUploads" stack-label="parallelUploads" type="number" />
+            <q-input class="col" v-model="config.maxFiles" stack-label="maxFiles" type="number" />
+          </div>
+          <div class="row">
+            <q-toggle class="col" v-model="config.multiple" label="multiple" />
+            <q-toggle class="col" v-model="config.autoStart" label="autoStart" />
+            <q-toggle class="col" v-model="config.hideUploadButton" label="hideUploadButton" />
+          </div>
+          <div class="row">
+            <q-toggle class="col" v-model="config.hideUploadProgress" label="hideUploadProgress" />
+            <q-toggle class="col" v-model="config.noThumbnails" label="noThumbnails" />
+            <q-toggle class="col" v-model="config.autoExpand" label="autoExpand" />
+          </div>
+          <br><br>
+          <div class="q-pa-sm" :class="dark ? 'bg-grey-10 text-orange' : ''">
+            <q-uploader
+              extensions=".jpg"
+              :inverted="inverted"
+              :dark="dark"
+              :auto-expand="config.autoExpand"
+              :style="`max-width: ${config.maxWidth}`"
+              float-label="Upload files"
+              :multiple="config.multiple"
+              :url="url"
+              :custom="tab.custom"
+              :ref="`upld-${tab.name}-1`"
+              :no-thumbnails="config.noThumbnails"
+              :parallel-uploads="config.parallelUploads"
+              :max-size="config.maxSize"
+              :max-files="config.maxFiles"
+              :auto-start="config.autoStart"
+              :hide-upload-progress="config.hideUploadProgress"
+              :hide-upload-button="config.hideUploadButton"
+              @start="emit('start')"
+              @finish="emit('finish')"
+              @uploaded="uploaded"
+              @add="add"
+              @remove:done="removeDone"
+              @remove:abort="removeAbort"
+              @remove:cancel="removeCancel"
+            />
+          </div>
+          <p class="caption">Dark theme and QField</p>
           <div class="bg-black q-pa-sm" style="max-width: 500px">
             <q-uploader dark :url="url" :custom="tab.custom" multiple color="lime" float-label="Float label" />
             <br>
@@ -63,7 +112,7 @@
               multiple
               :url="url"
               :custom="tab.custom"
-              :ref="`upld-${tab.name}`"
+              :ref="`upld-${tab.name}-2`"
               @start="emit('start')"
               @finish="emit('finish')"
               @uploaded="uploaded"
@@ -75,8 +124,8 @@
             />
           </div>
           
-          <q-btn color="primary" @click="pick(`upld-${tab.name}`)" style="margin-top: 15px">Pick Files</q-btn>
-          <q-btn color="primary" @click="reset(`upld-${tab.name}`)" style="margin-top: 15px">Reset the above Uploader</q-btn>
+          <q-btn color="primary" @click="pick(`upld-${tab.name}-2`)" style="margin-top: 15px">Pick Files</q-btn>
+          <q-btn color="primary" @click="reset(`upld-${tab.name}-2`)" style="margin-top: 15px">Reset the above Uploader</q-btn>
 
           <p class="caption">Single File Upload - No Upload Button</p>
           <q-uploader style="max-width: 320px" hide-upload-button color="amber" stack-label="Stack Label" :url="url" :custom="tab.custom" />
@@ -234,6 +283,20 @@ const tabs = [
   }
 ]
 
+const config = {
+  extensions: '.jpg,.png',
+  multiple: true,
+  maxSize: 1.5 * 1024 * 1024,
+  parallelUploads: 2,
+  maxFiles: 6,
+  autoStart: true,
+  hideUploadButton: true,
+  hideUploadProgress: false,
+  noThumbnails: false,
+  autoExpand: true,
+  maxWidth: '400px'
+}
+
 export default {
   data () {
     return {
@@ -243,7 +306,8 @@ export default {
       inverted: false,
       dark: false,
       tabs,
-      firebaseMissingFiles
+      firebaseMissingFiles,
+      config
     }
   },
   methods: {
