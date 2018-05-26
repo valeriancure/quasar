@@ -24,7 +24,7 @@
       :align="align"
       :no-parent-field="noParentField"
 
-      :length="queuedOrFailedTasks.length"
+      :length="tasks.length"
       additional-length
     >
       <div
@@ -42,20 +42,12 @@
       ></q-spinner>
 
       <q-icon
-        v-if="uploadingTasks.length"
-        slot="after"
-        class="q-if-end self-center"
-        :name="$q.icon.uploader[`clear${isInverted ? 'Inverted' : ''}`]"
-        @click.native="abort"
-      ></q-icon>
-
-      <q-icon
-        v-if="!uploadingTasks.length"
+        v-if="!uploadingTasks.length || addWhileUploading"
         slot="after"
         :name="$q.icon.uploader.add"
         class="q-uploader-pick-button q-if-control relative-position overflow-hidden"
         @click.native="__pick"
-        :disabled="addDisabled"
+        :disabled="!canAddFromUI"
       >
         <input
           type="file"
@@ -68,12 +60,19 @@
       </q-icon>
 
       <q-icon
-        v-if="!hideUploadButton && queuedOrFailedTasks.length"
+        v-if="!hideUploadButton && !shouldStartUploads"
         slot="after"
         :name="$q.icon.uploader.upload"
         class="q-if-control"
-        :disabled="queuedOrFailedTasks.length === 0"
+        :disabled="queuedTasks.length === 0"
         @click.native="upload"
+      ></q-icon>
+      <q-icon
+        v-else-if="uploadingTasks.length"
+        slot="after"
+        class="q-if-control"
+        :name="$q.icon.uploader[`abort${isInverted ? 'Inverted' : ''}`]"
+        @click.native="abort"
       ></q-icon>
 
       <q-icon
@@ -184,6 +183,7 @@ export default {
     },
     maxFiles: Number,
     autoStart: Boolean, // upload starts as soon as a file is ready
+    addWhileUploading: Boolean,
     hideUploadButton: Boolean,
     hideUploadProgress: Boolean,
     noThumbnails: Boolean,
@@ -203,7 +203,6 @@ export default {
     return {
       tasks: [],
       canStartUploads: false,
-      focused: false,
       dnd: false,
       expanded: false
     }
@@ -239,17 +238,17 @@ export default {
     uploadingTasks () {
       return this.tasks.filter(task => task.uploading)
     },
-    acceptedTasks () {
-      return this.tasks.filter(task => !task.rejected)
-    },
     queuedTasks () {
-      return this.acceptedTasks.filter(task => !task.uploading && !task.uploaded && !task.failed)
+      return this.tasks.filter(task => !task.uploading && !task.uploaded && !task.failed)
     },
-    failedTasks () {
+    /* failedTasks () {
       return this.tasks.filter(task => task.failed)
-    },
-    queuedOrFailedTasks () {
+    }, */
+    /* queuedOrFailedTasks () {
       return [...this.queuedTasks, ...this.failedTasks]
+    }, */
+    healthyTasks () {
+      return this.tasks.filter(task => !task.failed)
     },
     queuedOrUploadingTasks () {
       return [...this.queuedTasks, ...this.uploadingTasks]
@@ -261,10 +260,10 @@ export default {
       return this.tasks.length > 0
     },
     totalSizeBytes () {
-      return this.acceptedTasks.reduce((total, task) => total + task.file.size, 0)
+      return this.healthyTasks.reduce((total, task) => total + task.file.size, 0)
     },
     totalProgressBytes () {
-      return this.acceptedTasks.reduce((total, task) => total + task.progressBytes, 0)
+      return this.healthyTasks.reduce((total, task) => total + task.progressBytes, 0)
     },
     totalProgressPercent () {
       return this.totalSizeBytes ? Math.min(100, this.totalProgressBytes / this.totalSizeBytes * 100) : 0
@@ -273,10 +272,11 @@ export default {
       const total = humanStorageSize(this.totalSizeBytes)
       return this.uploadingTasks.length
         ? `${(this.totalProgressPercent).toFixed(2)}% (${humanStorageSize(this.totalProgressBytes)} / ${total})`
-        : `${this.acceptedTasks.length} (${total})`
+        : `${this.healthyTasks.length} (${total})`
     },
-    addDisabled () {
-      return !this.multiple && this.queueLength >= 1
+    canAddFromUI () {
+      if (!this.multiple && this.tasks.length) return false
+      return true
     },
     filesStyle () {
       if (this.maxHeight) {
@@ -348,7 +348,6 @@ export default {
       }
     },
     __handleNewFile (file) {
-      if (this.addDisabled) return // disabled by prop
       if (!this.__checkNumberOfFiles()) return
       if (!this.__checkExtensionOrType(file)) return // extension and type don't match
       if (!this.__checkSize(file)) return
@@ -442,6 +441,9 @@ export default {
       if (!this.shouldStartUploads) return
       const queued = this.queuedTasks
       const uploading = this.uploadingTasks
+      if (!queued.length && !uploading.length) {
+        this.canStartUploads = false
+      }
       if (!queued.length) return // TODO : add failed tasks ?
       if (this.parallelUploads && uploading.length >= this.parallelUploads) return // max parallel uploads reched
       const nextTask = queued[0]
@@ -455,7 +457,9 @@ export default {
     },
     __onDrop (e) {
       this.dnd = false
-      this.__handleNewFileList(e.dataTransfer.files)
+      if (this.canAddFromUI) {
+        this.__handleNewFileList(e.dataTransfer.files)
+      }
     },
     __checkNumberOfFiles () {
       return !this.maxFiles || (this.tasks.length < this.maxFiles)
@@ -522,12 +526,12 @@ export default {
       this.tasks = this.tasks.filter(t => t.uid !== task.uid)
     },
     __pick () {
-      if (!this.addDisabled && this.$q.platform.is.mozilla) {
+      if (this.canAddFromUI && this.$q.platform.is.mozilla) {
         this.$refs.file.click()
       }
     },
     pick () {
-      if (!this.addDisabled) {
+      if (this.canAddFromUI) {
         this.$refs.file.click()
       }
     },

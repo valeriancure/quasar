@@ -30,7 +30,7 @@
         v-else
         size="24px"
         :color="color"
-        nopeclass="q-if-end self-center"
+        class="self-center"
       ></q-spinner>
     </q-item-side>
 
@@ -46,7 +46,7 @@
         v-else
         size="24px"
         :color="color"
-        nopeclass="q-if-end self-center"
+        class="self-center"
       ></q-spinner>
     </q-item-side>
 
@@ -102,7 +102,6 @@ export default {
     },
     uploaderAction () {
       const { state } = this
-      console.log('computing uploaderAction')
       if (state.aborting || state.uploaded) return null
       if (state.pausing || state.resuming) { // loading
         return { loading: true }
@@ -129,7 +128,6 @@ export default {
     },
     taskAction () {
       const { state } = this
-      console.log('computing taskAction')
       if (state.aborting) { // loading
         return { loading: true }
       }

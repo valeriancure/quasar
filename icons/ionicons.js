@@ -141,9 +141,13 @@ export default {
     icon: 'ion-play'
   },
   uploader: {
-    done: 'ion-checkmark',
-    clear: 'ion-close-circle',
-    clearInverted: 'ion-close-circle-outline',
+    pause: 'ion-pause',
+    resume: 'ion-play',
+    retry: 'ion-refresh',
+    discard: 'ion-checkmark',
+    abort: 'ion-close-circle',
+    abortInverted: 'ion-close-circle-outline',
+    delete: 'ion-trash',
     add: 'ion-add',
     upload: 'ion-cloud-upload',
     expand: 'ion-arrow-dropdown',

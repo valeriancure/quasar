@@ -32,6 +32,7 @@
             <q-toggle class="col" v-model="config.multiple" label="multiple" />
             <q-toggle class="col" v-model="config.autoStart" label="autoStart" />
             <q-toggle class="col" v-model="config.hideUploadButton" label="hideUploadButton" />
+            <q-toggle class="col" v-model="config.addWhileUploading" label="addWhileUploading" />
           </div>
           <div class="row">
             <q-toggle class="col" v-model="config.hideUploadProgress" label="hideUploadProgress" />
@@ -58,6 +59,7 @@
               :auto-start="config.autoStart"
               :hide-upload-progress="config.hideUploadProgress"
               :hide-upload-button="config.hideUploadButton"
+              :add-while-uploading="config.addWhileUploading"
               @start="emit('start')"
               @finish="emit('finish')"
               @uploaded="uploaded"
@@ -289,8 +291,9 @@ const config = {
   maxSize: 1.5 * 1024 * 1024,
   parallelUploads: 2,
   maxFiles: 6,
-  autoStart: true,
-  hideUploadButton: true,
+  autoStart: false,
+  hideUploadButton: false,
+  addWhileUploading: true,
   hideUploadProgress: false,
   noThumbnails: false,
   autoExpand: true,

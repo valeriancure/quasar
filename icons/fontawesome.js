@@ -141,9 +141,13 @@ export default {
     icon: 'fas fa-play'
   },
   uploader: {
-    done: 'fas fa-check',
-    clear: 'fas fa-times-circle',
-    clearInverted: 'fas fa-times',
+    pause: 'fas fa-pause-circle',
+    resume: 'fas fa-play-circle',
+    retry: 'fas fa-undo',
+    discard: 'fas fa-check',
+    abort: 'fas fa-times-circle',
+    abortInverted: 'fas fa-times',
+    delete: 'fas fa-trash-alt',
     add: 'fas fa-plus-square',
     upload: 'fas fa-cloud-upload-alt',
     expand: 'fas fa-chevron-down',

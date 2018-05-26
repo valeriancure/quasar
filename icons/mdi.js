@@ -141,9 +141,13 @@ export default {
     icon: 'mdi-play'
   },
   uploader: {
-    done: 'mdi-check',
-    clear: 'mdi-close-circle',
-    clearInverted: 'mdi-close',
+    pause: 'mdi-pause-circle-outline',
+    resume: 'mdi-play-circle-outline',
+    retry: 'mdi-replay',
+    discard: 'mdi-check',
+    abort: 'mdi-close-circle',
+    abortInverted: 'mdi-close',
+    delete: 'mdi-delete-forever',
     add: 'mdi-plus',
     upload: 'mdi-cloud-upload',
     expand: 'mdi-chevron-down',
