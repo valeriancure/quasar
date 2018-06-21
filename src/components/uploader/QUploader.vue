@@ -391,9 +391,9 @@ export default {
       const uploaderArguments = { // common arguments passed to all upload helpers
         task,
         additionalFields: this.additionalFields,
-        updateProgressBytes: progress => { this.__updateProgressBytes({task, progress}) },
-        success: () => { this.__completeTask(task) },
-        failure: err => { this.__failTask(task, err) }
+        updateProgressBytes: (progress, total) => { this.__updateProgressBytes(task, {progress, total}) },
+        success: payload => { this.__completeTask(task, payload) },
+        failure: payload => { this.__failTask(task, payload) }
       }
       const helperArguments = this.uploadHelper.specificArguments // specific arguments required by the helper
       if (typeof helperArguments === 'object') {
@@ -418,20 +418,22 @@ export default {
         task.uploader.resume = null // declared for reactivity. Will be set if pause() is called.
       })
     },
-    __updateProgressBytes ({task, progress, total}) {
+    __updateProgressBytes (task, {progress, total}) {
       let totalBytes = total || task.file.size
       task.progressBytes = progress
       const progressPercentRaw = totalBytes ? progress / totalBytes : 0
       task.progressPercent = Math.min(100, parseInt(progressPercentRaw * 100, 10))
     },
-    __completeTask (task) {
+    __completeTask (task, payload) {
       task.uploaded = true
       task.failed = false
       task.uploading = false
+      this.$emit('file-uploaded', {task, payload})
     },
-    __failTask (task, err) {
+    __failTask (task, payload) {
       task.uploading = false
       task.failed = true
+      this.$emit('file-failed', {task, payload})
     },
     __abortUpload (task) {
       task.uploading = false

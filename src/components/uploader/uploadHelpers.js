@@ -21,10 +21,10 @@ const createWithUrl = ({task, additionalFields, updateProgressBytes, success, fa
   }, false)
   xhr.onreadystatechange = () => {
     if (xhr.readyState < 4) return
-    if (xhr.status && xhr.status < 400) success()
-    else failure()
+    if (xhr.status && xhr.status < 400) success({xhr})
+    else failure({xhr})
   }
-  xhr.onerror = () => { failure() }
+  xhr.onerror = () => { failure({xhr}) }
 
   const start = () => {
     const urlPromise = (typeof url === 'function') // url can be an 'urlFactory' returning a Promise
@@ -97,12 +97,12 @@ const createWithFirebaseStorage = ({task, additionalFields, updateProgressBytes,
       uploadTask.on('state_changed', snapshot => {
         // upload in progresss
         updateProgressBytes(snapshot.bytesTransferred, snapshot.totalBytes)
-      }, error => {
+      }, err => {
         // error while uploading
-        failure(error)
+        failure({err, snapshot})
       }, () => {
         // upload successful
-        success()
+        success({snapshot: uploadTask.snapshot})
       })
       const abort = () => {
         const aborted = uploadTask.cancel()
